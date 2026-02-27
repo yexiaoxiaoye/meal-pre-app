@@ -500,19 +500,19 @@ def render_daily_plan_tab():
                         grams = st.number_input(f"克数", min_value=1, value=100, key=f"rec_ing_g_{k}")
                     rec_ingredients.append({"ingredient_id": next(i["id"] for i in ingredients if i["name"] == name), "weight_grams": grams})
                 if st.form_submit_button("创建配方"):
-                if rec_name.strip() and (ingredients and rec_ingredients):
-                    new_id = "rec_" + str(uuid.uuid4())[:8]
-                    new_recipe = {
-                        "id": new_id,
-                        "name": rec_name.strip(),
-                        "category": category,
-                        "ingredients": rec_ingredients if ingredients else []
-                    }
-                    recipes.append(new_recipe)
-                    save_recipes(recipes)
-                    st.session_state.recipes = recipes
-                    st.success("配方已创建")
-                    st.rerun()
+                    if rec_name.strip() and (ingredients and rec_ingredients):
+                        new_id = "rec_" + str(uuid.uuid4())[:8]
+                        new_recipe = {
+                            "id": new_id,
+                            "name": rec_name.strip(),
+                            "category": category,
+                            "ingredients": rec_ingredients if ingredients else []
+                        }
+                        recipes.append(new_recipe)
+                        save_recipes(recipes)
+                        st.session_state.recipes = recipes
+                        st.success("配方已创建")
+                        st.rerun()
 
     # ---------- 一周购物清单 ----------
     st.markdown("---")
