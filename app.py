@@ -209,6 +209,11 @@ def render_ingredients_tab():
     with st.expander("➕ 添加新食材", expanded=False):
         with st.form("add_ingredient_form"):
             name = st.text_input("名称", placeholder="例如：鸡胸肉")
+            category = st.selectbox(
+                "种类",
+                ["肉类", "素菜", "主食", "调料", "其他"],
+                key="add_ing_category"
+            )
             c1, c2, c3, c4 = st.columns(4)
             with c1:
                 cal = st.number_input("热量 (kcal/100g)", min_value=0, value=100, step=1)
@@ -224,6 +229,7 @@ def render_ingredients_tab():
                     ingredients.append({
                         "id": new_id,
                         "name": name.strip(),
+                        "category": category,
                         "calories_per_100g": cal,
                         "protein_per_100g": protein,
                         "carbs_per_100g": carbs,
@@ -241,12 +247,14 @@ def render_ingredients_tab():
         st.info("暂无食材，请先添加。")
         return
 
-    # 以标签形式展示，并支持编辑/删除
+    # 以标签形式展示，并支持编辑/删除（兼容旧数据无 category）
     for ing in ingredients:
+        cat = ing.get("category", "其他")
         col1, col2 = st.columns([4, 1])
         with col1:
             st.markdown(
                 f'<span class="ingredient-tag">{ing["name"]}</span> '
+                f'<small style="color:#666;">[{cat}]</small> '
                 f'· {ing["calories_per_100g"]} kcal · {ing["protein_per_100g"]}g 蛋白 · '
                 f'{ing["carbs_per_100g"]}g 碳水 · {ing["fat_per_100g"]}g 脂肪',
                 unsafe_allow_html=True
@@ -268,25 +276,34 @@ def render_ingredients_tab():
         if ing:
             with st.form("edit_ingredient_form"):
                 new_name = st.text_input("名称", value=ing["name"])
+                _cat_options = ["肉类", "素菜", "主食", "调料", "其他"]
+                _current = ing.get("category", "其他")
+                try:
+                    _idx = _cat_options.index(_current)
+                except ValueError:
+                    _idx = 4
+                new_cat = st.selectbox("种类", _cat_options, index=_idx, key="edit_ing_cat")
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    new_cal = st.number_input("热量", min_value=0, value=ing["calories_per_100g"], step=1, key="ec")
+                    new_cal = st.number_input("热量", min_value=0, value=int(ing["calories_per_100g"]), step=1, key="ec")
                 with c2:
-                    new_protein = st.number_input("蛋白质", min_value=0.0, value=ing["protein_per_100g"], step=0.1, key="ep")
+                    new_protein = st.number_input("蛋白质", min_value=0.0, value=float(ing.get("protein_per_100g", 0)), step=0.1, key="ep")
                 with c3:
-                    new_carbs = st.number_input("碳水", min_value=0.0, value=ing["carbs_per_100g"], step=0.1, key="ecarb")
+                    new_carbs = st.number_input("碳水", min_value=0.0, value=float(ing.get("carbs_per_100g", 0)), step=0.1, key="ecarb")
                 with c4:
-                    new_fat = st.number_input("脂肪", min_value=0.0, value=ing["fat_per_100g"], step=0.1, key="ef")
-                if st.form_submit_button("更新"):
-                    ing["name"] = new_name.strip() or ing["name"]
-                    ing["calories_per_100g"] = new_cal
-                    ing["protein_per_100g"] = new_protein
-                    ing["carbs_per_100g"] = new_carbs
-                    ing["fat_per_100g"] = new_fat
-                    save_ingredients(ingredients)
-                    st.session_state.ingredients = ingredients
-                    st.success("已更新")
-                    st.rerun()
+                    new_fat = st.number_input("脂肪", min_value=0.0, value=float(ing.get("fat_per_100g", 0)), step=0.1, key="ef")
+                submit_edit = st.form_submit_button("更新")
+            if submit_edit:
+                ing["name"] = new_name.strip() or ing["name"]
+                ing["category"] = new_cat
+                ing["calories_per_100g"] = new_cal
+                ing["protein_per_100g"] = new_protein
+                ing["carbs_per_100g"] = new_carbs
+                ing["fat_per_100g"] = new_fat
+                save_ingredients(ingredients)
+                st.session_state.ingredients = ingredients
+                st.success("已更新")
+                st.rerun()
 
 # ---------- 配方与一餐组合：烹饪区 + 逆向计算 ----------
 def render_daily_plan_tab():
@@ -309,10 +326,16 @@ def render_daily_plan_tab():
     if day_key not in weekly_plan:
         weekly_plan[day_key] = {}
     if meal_key not in weekly_plan[day_key]:
-        weekly_plan[day_key][meal_key] = {"target_calories": 500, "recipe_ids": []}
+        weekly_plan[day_key][meal_key] = {
+            "target_calories": 500, "target_protein": 25, "target_carbs": 50, "target_fat": 20,
+            "recipe_ids": []
+        }
 
     plan = weekly_plan[day_key][meal_key]
     target_cal = plan.get("target_calories", 500)
+    target_protein = plan.get("target_protein", 25)
+    target_carbs = plan.get("target_carbs", 50)
+    target_fat = plan.get("target_fat", 20)
     selected_recipe_ids = plan.get("recipe_ids", [])
 
     st.markdown(f"**{day_names[day_idx]} · {meal_names[meal_idx]}**")
@@ -331,9 +354,21 @@ def render_daily_plan_tab():
         )
         selected_recipe_ids = [recipe_options[n] for n in chosen]
 
-    # 目标热量
-    target_cal = st.number_input("本餐目标总热量 (kcal)", min_value=100, value=int(target_cal), step=50, key="target_cal_input")
+    # 目标营养（热量 + 蛋白质/碳水/脂肪）
+    st.markdown("#### 本餐目标营养")
+    tc1, tc2, tc3, tc4 = st.columns(4)
+    with tc1:
+        target_cal = st.number_input("目标热量 (kcal)", min_value=100, value=int(target_cal), step=50, key="target_cal_input")
+    with tc2:
+        target_protein = st.number_input("目标蛋白质 (g)", min_value=0.0, value=float(target_protein), step=1.0, key="target_protein_input")
+    with tc3:
+        target_carbs = st.number_input("目标碳水 (g)", min_value=0.0, value=float(target_carbs), step=1.0, key="target_carbs_input")
+    with tc4:
+        target_fat = st.number_input("目标脂肪 (g)", min_value=0.0, value=float(target_fat), step=1.0, key="target_fat_input")
     plan["target_calories"] = target_cal
+    plan["target_protein"] = target_protein
+    plan["target_carbs"] = target_carbs
+    plan["target_fat"] = target_fat
     plan["recipe_ids"] = selected_recipe_ids
 
     # 逆向计算
@@ -369,20 +404,94 @@ def render_daily_plan_tab():
         st.session_state.weekly_plan = weekly_plan
         st.success("已保存")
 
+    # ---------- 一周汇总表格 ----------
+    st.markdown("---")
+    st.markdown("#### 一周计划汇总")
+    st.caption("下表展示本周已安排的餐食及营养预估，未填写的日期/餐次留空。")
+    day_names_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    meal_names_cn = ["早餐/午餐", "晚餐"]
+    # 构建表格行：每行 = 一天的一顿
+    rows = []
+    for d in range(7):
+        for m in range(2):
+            key_d, key_m = f"day_{d}", f"meal_{m}"
+            plan_meal = weekly_plan.get(key_d, {}).get(key_m, {})
+            rids = plan_meal.get("recipe_ids", [])
+            if not rids:
+                rows.append({
+                    "星期": day_names_cn[d],
+                    "餐次": meal_names_cn[m],
+                    "肉类": "",
+                    "素菜": "",
+                    "主食": "",
+                    "热量(kcal)": "",
+                    "蛋白质(g)": "",
+                    "碳水(g)": "",
+                    "脂肪(g)": "",
+                })
+                continue
+            # 按类别分 + 用逆向计算得到本餐总营养
+            meat_list, veg_list, staple_list = [], [], []
+            entries = [{"recipe_id": rid, "scale": 1.0} for rid in rids]
+            target = plan_meal.get("target_calories", 500)
+            scales, _ = solve_meal_weights(entries, recipes, ingredients, target)
+            total_nut = meal_total_nutrition(
+                [{"recipe_id": e["recipe_id"], "scale": scales[i]} for i, e in enumerate(entries)],
+                recipes, ingredients
+            )
+            for rid in rids:
+                rec = next((r for r in recipes if r.get("id") == rid), None)
+                if not rec:
+                    continue
+                cat = rec.get("category", "vegetable")
+                cat_cn = {"vegetable": "素菜", "meat": "肉类", "staple": "主食"}.get(cat, rec["name"])
+                if cat == "meat" or "肉" in str(cat_cn):
+                    meat_list.append(rec["name"])
+                elif cat == "staple" or "主食" in str(cat_cn):
+                    staple_list.append(rec["name"])
+                else:
+                    veg_list.append(rec["name"])
+            rows.append({
+                "星期": day_names_cn[d],
+                "餐次": meal_names_cn[m],
+                "肉类": "、".join(meat_list) if meat_list else "",
+                "素菜": "、".join(veg_list) if veg_list else "",
+                "主食": "、".join(staple_list) if staple_list else "",
+                "热量(kcal)": f"{total_nut['calories']:.0f}" if total_nut["calories"] else "",
+                "蛋白质(g)": f"{total_nut['protein']:.1f}" if total_nut["protein"] else "",
+                "碳水(g)": f"{total_nut['carbs']:.1f}" if total_nut["carbs"] else "",
+                "脂肪(g)": f"{total_nut['fat']:.1f}" if total_nut["fat"] else "",
+            })
+    if rows:
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("暂无计划数据，请先在每日计划中安排餐食。")
+
     # ---------- 配方管理（在同一 Tab 下用 expander 或子区）----------
     st.markdown("---")
     st.markdown("#### 配方管理：创建新菜（如西红柿炒蛋）")
     with st.expander("新建配方", expanded=False):
-        with st.form("new_recipe_form"):
-            rec_name = st.text_input("配方名称", placeholder="例如：西红柿炒蛋")
-            category = st.selectbox("类别", ["vegetable", "meat", "staple"], format_func=lambda x: {"vegetable": "素菜", "meat": "肉类", "staple": "主食"}[x])
-            st.caption("添加食材：选择食材并填写克数（生重）。")
-            rec_ingredients = []
-            if not ingredients:
-                st.info("请先在食材库中添加食材。")
+        rec_ingredients = []
+        if not ingredients:
+            st.info("请先在食材库中添加食材。")
+        else:
+            # 食材数量放在表单外，以便修改时立即刷新下方行数
+            num_ings = st.number_input("本配方包含几种食材", min_value=1, max_value=20, value=2, key="num_ings")
+            ing_search = st.text_input("搜索食材（按名称或种类筛选）", placeholder="留空显示全部", key="ing_search")
+            if ing_search.strip():
+                filtered = [i for i in ingredients if ing_search.strip() in i.get("name", "") or ing_search.strip() in str(i.get("category", ""))]
             else:
+                filtered = ingredients
+            ing_names = [i["name"] for i in filtered]
+            if not ing_names:
                 ing_names = [i["name"] for i in ingredients]
-                num_ings = st.number_input("本配方包含几种食材", min_value=1, max_value=20, value=2, key="num_ings")
+            with st.form("new_recipe_form"):
+                rec_name = st.text_input("配方名称", placeholder="例如：西红柿炒蛋")
+                category = st.selectbox("类别", ["vegetable", "meat", "staple"], format_func=lambda x: {"vegetable": "素菜", "meat": "肉类", "staple": "主食"}[x])
+                st.caption("添加食材：选择食材并填写克数（生重）。")
+                rec_ingredients = []
                 for k in range(int(num_ings)):
                     c1, c2 = st.columns(2)
                     with c1:
@@ -390,7 +499,7 @@ def render_daily_plan_tab():
                     with c2:
                         grams = st.number_input(f"克数", min_value=1, value=100, key=f"rec_ing_g_{k}")
                     rec_ingredients.append({"ingredient_id": next(i["id"] for i in ingredients if i["name"] == name), "weight_grams": grams})
-            if st.form_submit_button("创建配方"):
+                if st.form_submit_button("创建配方"):
                 if rec_name.strip() and (ingredients and rec_ingredients):
                     new_id = "rec_" + str(uuid.uuid4())[:8]
                     new_recipe = {
@@ -431,7 +540,7 @@ def render_daily_plan_tab():
                         agg[uid] = agg.get(uid, 0) + w["weight_grams"]
 
         if not agg:
-            st.warning("本周计划中还没有安排任何餐食，无法生成购物清单。")
+            st.warning("本周暂无已安排的餐食，无法生成购物清单。请先在每日计划中为部分或全部日期安排餐食。")
         else:
             lines = []
             for ing_id, grams in sorted(agg.items()):
