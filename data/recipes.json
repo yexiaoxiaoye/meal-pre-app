@@ -1,0 +1,11 @@
+[
+  {
+    "id": "rec_1",
+    "name": "西红柿炒蛋",
+    "category": "vegetable",
+    "ingredients": [
+      { "ingredient_id": "ing_1", "weight_grams": 100 },
+      { "ingredient_id": "ing_2", "weight_grams": 150 }
+    ]
+  }
+]

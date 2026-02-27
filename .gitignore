@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+
+# 购物清单为本地生成，可不上传（食材/配方/计划保留在仓库中以便云端有初始数据）
+data/shopping_lists/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
