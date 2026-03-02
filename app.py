@@ -19,6 +19,7 @@ DATA_DIR = BASE_DIR / "data"
 INGREDIENTS_FILE = DATA_DIR / "ingredients.json"
 RECIPES_FILE = DATA_DIR / "recipes.json"
 WEEKLY_PLAN_FILE = DATA_DIR / "weekly_plan.json"
+PEOPLE_FILE = DATA_DIR / "people.json"
 SHOPPING_LIST_DIR = DATA_DIR / "shopping_lists"
 
 DATA_DIR.mkdir(exist_ok=True)
@@ -55,6 +56,12 @@ def get_weekly_plan():
 
 def save_weekly_plan(data):
     save_json(WEEKLY_PLAN_FILE, data)
+
+def get_people():
+    return load_json(PEOPLE_FILE, [])
+
+def save_people(data):
+    save_json(PEOPLE_FILE, data)
 
 # ---------- 营养与配方计算 ----------
 def ingredient_by_id(ingredients_list, ing_id):
@@ -113,13 +120,14 @@ def solve_meal_weights(meal_recipe_entries, recipes_list, ingredients_list, targ
             continue
         nut = recipe_nutrition(rec, ingredients_list)
         recipe_nuts.append(nut)
-        base_total += nut["calories"]
+        weight = float(entry.get("scale", 1.0) or 1.0)
+        base_total += nut["calories"] * weight
 
     if base_total <= 0:
         return [1.0] * len(meal_recipe_entries), []
 
-    scale = target_calories / base_total
-    scales = [scale] * len(meal_recipe_entries)
+    global_scale = target_calories / base_total
+    scales = [float(entry.get("scale", 1.0) or 1.0) * global_scale for entry in meal_recipe_entries]
     # 每道菜各食材的克数
     detailed_weights = []
     for i, entry in enumerate(meal_recipe_entries):
@@ -128,10 +136,11 @@ def solve_meal_weights(meal_recipe_entries, recipes_list, ingredients_list, targ
             detailed_weights.append([])
             continue
         row = []
+        s = scales[i] if i < len(scales) else 1.0
         for item in rec.get("ingredients", []):
             row.append({
                 "ingredient_id": item["ingredient_id"],
-                "weight_grams": round(item.get("weight_grams", 0) * scale, 1)
+                "weight_grams": round(item.get("weight_grams", 0) * s, 1)
             })
         detailed_weights.append(row)
     return scales, detailed_weights
@@ -196,6 +205,8 @@ def init_session():
         st.session_state.recipes = get_recipes()
     if "weekly_plan" not in st.session_state:
         st.session_state.weekly_plan = get_weekly_plan()
+    if "people" not in st.session_state:
+        st.session_state.people = get_people()
     if "gemini_messages" not in st.session_state:
         st.session_state.gemini_messages = []
 
@@ -312,23 +323,70 @@ def render_daily_plan_tab():
     ingredients = st.session_state.ingredients
     recipes = st.session_state.recipes
     weekly_plan = st.session_state.weekly_plan
+    people = st.session_state.people
 
     # 一周 7 天 x 每天 2 顿
     day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     meal_names = ["早餐/午餐", "晚餐"]
 
-    # 侧边：选择某一天、某一顿
+    # 侧边：选择某一天、某一顿 + 就餐人管理
     st.sidebar.markdown("### 选择日期与餐次")
     day_idx = st.sidebar.selectbox("星期", range(7), format_func=lambda i: day_names[i], key="plan_day")
     meal_idx = st.sidebar.selectbox("餐次", range(2), format_func=lambda i: meal_names[i], key="plan_meal")
+
+    st.sidebar.markdown("### 就餐人管理")
+    people_list = st.session_state.people
+    with st.sidebar.expander("添加就餐人", expanded=False):
+        with st.form("add_person_form"):
+            p_name = st.text_input("姓名", placeholder="例如：A 同学")
+            c1, c2 = st.columns(2)
+            with c1:
+                p_cal = st.number_input("默认热量 (kcal)", min_value=0.0, value=500.0, step=50.0, key="person_cal")
+            with c2:
+                p_pro = st.number_input("默认蛋白质 (g)", min_value=0.0, value=30.0, step=1.0, key="person_pro")
+            if st.form_submit_button("添加就餐人"):
+                if p_name.strip():
+                    people_list.append(
+                        {
+                            "name": p_name.strip(),
+                            "default_calories": p_cal,
+                            "default_protein": p_pro,
+                        }
+                    )
+                    save_people(people_list)
+                    st.session_state.people = people_list
+                    st.experimental_rerun()
+    if people_list:
+        st.sidebar.caption("当前就餐人：" + "、".join(p["name"] for p in people_list))
+        del_name = st.sidebar.selectbox(
+            "删除就餐人", options=["（不删除）"] + [p["name"] for p in people_list], key="del_person_select"
+        )
+        if del_name != "（不删除）" and st.sidebar.button("确认删除", key="btn_del_person"):
+            people_list = [p for p in people_list if p["name"] != del_name]
+            save_people(people_list)
+            st.session_state.people = people_list
+            # 同时从 weekly_plan 中移除该人的参与记录
+            for d in range(7):
+                for m in range(2):
+                    dk, mk = f"day_{d}", f"meal_{m}"
+                    if dk in weekly_plan and mk in weekly_plan[dk]:
+                        persons = weekly_plan[dk][mk].get("persons", [])
+                        weekly_plan[dk][mk]["persons"] = [pp for pp in persons if pp.get("name") != del_name]
+            save_weekly_plan(weekly_plan)
+            st.experimental_rerun()
     day_key = f"day_{day_idx}"
     meal_key = f"meal_{meal_idx}"
     if day_key not in weekly_plan:
         weekly_plan[day_key] = {}
     if meal_key not in weekly_plan[day_key]:
         weekly_plan[day_key][meal_key] = {
-            "target_calories": 500, "target_protein": 25, "target_carbs": 50, "target_fat": 20,
-            "recipe_ids": []
+            "target_calories": 500,
+            "target_protein": 25,
+            "target_carbs": 50,
+            "target_fat": 20,
+            "recipe_ids": [],
+            "recipe_ratios": {},
+            "persons": [],
         }
 
     plan = weekly_plan[day_key][meal_key]
@@ -337,6 +395,7 @@ def render_daily_plan_tab():
     target_carbs = plan.get("target_carbs", 50)
     target_fat = plan.get("target_fat", 20)
     selected_recipe_ids = plan.get("recipe_ids", [])
+    recipe_ratios = plan.get("recipe_ratios", {})
 
     st.markdown(f"**{day_names[day_idx]} · {meal_names[meal_idx]}**")
 
@@ -354,6 +413,27 @@ def render_daily_plan_tab():
         )
         selected_recipe_ids = [recipe_options[n] for n in chosen]
 
+    # 每道菜的权重（手动调整比例）
+    if selected_recipe_ids:
+        st.markdown("##### 菜品权重（用于控制每道菜在本餐中的占比）")
+        new_ratios = {}
+        cols = st.columns(len(selected_recipe_ids))
+        for idx, rid in enumerate(selected_recipe_ids):
+            rec = next((r for r in recipes if r["id"] == rid), None)
+            if not rec:
+                continue
+            with cols[idx]:
+                default_ratio = float(recipe_ratios.get(rid, 1.0) or 1.0)
+                r_val = st.number_input(
+                    f"{rec['name']} 权重",
+                    min_value=0.1,
+                    value=default_ratio,
+                    step=0.1,
+                    key=f"ratio_{day_key}_{meal_key}_{rid}",
+                )
+                new_ratios[rid] = r_val
+        recipe_ratios = new_ratios
+
     # 目标营养（热量 + 蛋白质/碳水/脂肪）
     st.markdown("#### 本餐目标营养")
     tc1, tc2, tc3, tc4 = st.columns(4)
@@ -370,9 +450,62 @@ def render_daily_plan_tab():
     plan["target_carbs"] = target_carbs
     plan["target_fat"] = target_fat
     plan["recipe_ids"] = selected_recipe_ids
+    plan["recipe_ratios"] = recipe_ratios
+
+    # 本餐参与的人 & 逆向计算
+    st.markdown("#### 本餐就餐人")
+    people_all = st.session_state.people
+    existing_persons = plan.get("persons", [])
+    existing_names = [p.get("name") for p in existing_persons]
+    all_names = [p.get("name") for p in people_all]
+    if not people_all:
+        st.info("暂未添加就餐人，可在左侧侧边栏的「就餐人管理」中添加。")
+        selected_person_names: list[str] = []
+    else:
+        selected_person_names = st.multiselect(
+            "选择本餐的就餐人",
+            options=all_names,
+            default=[n for n in existing_names if n in all_names],
+            key=f"meal_persons_{day_key}_{meal_key}",
+        )
+
+    new_persons = []
+    if selected_person_names:
+        pc1, pc2, pc3, pc4 = st.columns(4)
+        for name in selected_person_names:
+            base = next((p for p in existing_persons if p.get("name") == name), None)
+            default_cal = float(base.get("target_calories", target_cal / max(len(selected_person_names), 1))) if base else float(target_cal / max(len(selected_person_names), 1))
+            default_pro = float(base.get("target_protein", target_protein / max(len(selected_person_names), 1))) if base else float(target_protein / max(len(selected_person_names), 1))
+            default_carb = float(base.get("target_carbs", target_carbs / max(len(selected_person_names), 1))) if base else float(target_carbs / max(len(selected_person_names), 1))
+            default_fat = float(base.get("target_fat", target_fat / max(len(selected_person_names), 1))) if base else float(target_fat / max(len(selected_person_names), 1))
+            with pc1:
+                cal_p = st.number_input(f"{name} 热量(kcal)", min_value=0.0, value=default_cal, step=10.0, key=f"{day_key}_{meal_key}_{name}_cal")
+            with pc2:
+                pro_p = st.number_input(f"{name} 蛋白质(g)", min_value=0.0, value=default_pro, step=1.0, key=f"{day_key}_{meal_key}_{name}_pro")
+            with pc3:
+                carb_p = st.number_input(f"{name} 碳水(g)", min_value=0.0, value=default_carb, step=1.0, key=f"{day_key}_{meal_key}_{name}_carb")
+            with pc4:
+                fat_p = st.number_input(f"{name} 脂肪(g)", min_value=0.0, value=default_fat, step=1.0, key=f"{day_key}_{meal_key}_{name}_fat")
+            new_persons.append(
+                {
+                    "name": name,
+                    "target_calories": cal_p,
+                    "target_protein": pro_p,
+                    "target_carbs": carb_p,
+                    "target_fat": fat_p,
+                }
+            )
+
+    if new_persons:
+        # 若有就餐人，则以就餐人目标总和作为本餐目标热量
+        plan["persons"] = new_persons
+        total_person_cal = sum(p["target_calories"] for p in new_persons)
+        if total_person_cal > 0:
+            plan["target_calories"] = total_person_cal
+            target_cal = total_person_cal
 
     # 逆向计算
-    meal_entries = [{"recipe_id": rid, "scale": 1.0} for rid in selected_recipe_ids]
+    meal_entries = [{"recipe_id": rid, "scale": recipe_ratios.get(rid, 1.0)} for rid in selected_recipe_ids]
     if meal_entries and target_cal > 0:
         scales, detailed_weights = solve_meal_weights(meal_entries, recipes, ingredients, target_cal)
         total_nut = meal_total_nutrition(
@@ -526,11 +659,18 @@ def render_daily_plan_tab():
                 if key_d not in weekly_plan or key_m not in weekly_plan[key_d]:
                     continue
                 plan_meal = weekly_plan[key_d][key_m]
-                target = plan_meal.get("target_calories", 500)
+                persons = plan_meal.get("persons", [])
+                if persons:
+                    target = sum(float(p.get("target_calories", 0) or 0) for p in persons) or plan_meal.get("target_calories", 0)
+                else:
+                    target = plan_meal.get("target_calories", 0)
                 rids = plan_meal.get("recipe_ids", [])
                 if not rids:
                     continue
-                entries = [{"recipe_id": rid, "scale": 1.0} for rid in rids]
+                if target <= 0:
+                    continue
+                ratios = plan_meal.get("recipe_ratios", {})
+                entries = [{"recipe_id": rid, "scale": ratios.get(rid, 1.0)} for rid in rids]
                 scales, detailed_weights = solve_meal_weights(entries, recipes, ingredients, target)
                 for i, rid in enumerate(rids):
                     if i >= len(detailed_weights):
