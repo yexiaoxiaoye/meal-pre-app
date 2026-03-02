@@ -1,0 +1,30 @@
+[
+  {
+    "name": "小朱",
+    "default_calories": 800.0,
+    "default_protein": 50.0,
+    "default_carbs": 100.0,
+    "default_fat": 22.0
+  },
+  {
+    "name": "夜宵",
+    "default_calories": 500.0,
+    "default_protein": 31.0,
+    "default_carbs": 63.0,
+    "default_fat": 14.0
+  },
+  {
+    "name": "Jack",
+    "default_calories": 700.0,
+    "default_protein": 44.0,
+    "default_carbs": 88.0,
+    "default_fat": 19.0
+  },
+  {
+    "name": "老曹",
+    "default_calories": 700.0,
+    "default_protein": 44.0,
+    "default_carbs": 88.0,
+    "default_fat": 19.0
+  }
+]

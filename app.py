@@ -441,17 +441,7 @@ def render_daily_plan_tab():
                 new_ratios[rid] = r_val
         recipe_ratios = new_ratios
 
-    # 目标营养（热量 + 蛋白质/碳水/脂肪）
-    st.markdown("#### 本餐目标营养")
-    tc1, tc2, tc3, tc4 = st.columns(4)
-    with tc1:
-        target_cal = st.number_input("目标热量 (kcal)", min_value=100, value=int(target_cal), step=50, key="target_cal_input")
-    with tc2:
-        target_protein = st.number_input("目标蛋白质 (g)", min_value=0.0, value=float(target_protein), step=1.0, key="target_protein_input")
-    with tc3:
-        target_carbs = st.number_input("目标碳水 (g)", min_value=0.0, value=float(target_carbs), step=1.0, key="target_carbs_input")
-    with tc4:
-        target_fat = st.number_input("目标脂肪 (g)", min_value=0.0, value=float(target_fat), step=1.0, key="target_fat_input")
+    # 不再单独设置本餐总体营养目标，由就餐人目标决定总热量
     plan["target_calories"] = target_cal
     plan["target_protein"] = target_protein
     plan["target_carbs"] = target_carbs
@@ -483,8 +473,10 @@ def render_daily_plan_tab():
             base = next((p for p in existing_persons if p.get("name") == name), None)
             default_cal = float(base.get("target_calories", target_cal / max(len(selected_person_names), 1))) if base else float(target_cal / max(len(selected_person_names), 1))
             default_pro = float(base.get("target_protein", target_protein / max(len(selected_person_names), 1))) if base else float(target_protein / max(len(selected_person_names), 1))
-            default_carb = float(base.get("target_carbs", target_carbs / max(len(selected_person_names), 1))) if base else float(target_carbs / max(len(selected_person_names), 1))
-            default_fat = float(base.get("target_fat", target_fat / max(len(selected_person_names), 1))) if base else float(target_fat / max(len(selected_person_names), 1))
+            # 若 person 有默认碳水/脂肪，则优先使用
+            person_defaults = next((p for p in people_list if p.get("name") == name), {})
+            default_carb = float(base.get("target_carbs", person_defaults.get("default_carbs", target_carbs / max(len(selected_person_names), 1)))) if base else float(person_defaults.get("default_carbs", target_carbs / max(len(selected_person_names), 1)))
+            default_fat = float(base.get("target_fat", person_defaults.get("default_fat", target_fat / max(len(selected_person_names), 1)))) if base else float(person_defaults.get("default_fat", target_fat / max(len(selected_person_names), 1)))
             with pc1:
                 cal_p = st.number_input(f"{name} 热量(kcal)", min_value=0.0, value=default_cal, step=10.0, key=f"{day_key}_{meal_key}_{name}_cal")
             with pc2:
