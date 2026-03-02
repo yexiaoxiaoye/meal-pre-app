@@ -604,8 +604,10 @@ def render_daily_plan_tab():
 
     # ---------- 配方管理（在同一 Tab 下用 expander 或子区）----------
     st.markdown("---")
-    st.markdown("#### 配方管理：创建新菜（如西红柿炒蛋）")
-    with st.expander("新建配方", expanded=False):
+    st.markdown("#### 配方管理")
+
+    # 新建配方
+    with st.expander("➕ 新建配方", expanded=False):
         rec_ingredients = []
         if not ingredients:
             st.info("请先在食材库中添加食材。")
@@ -645,6 +647,80 @@ def render_daily_plan_tab():
                         save_recipes(recipes)
                         st.session_state.recipes = recipes
                         st.success("配方已创建")
+                        st.rerun()
+
+    # 编辑 / 删除配方
+    with st.expander("✏️ 编辑 / 删除配方", expanded=False):
+        if not recipes:
+            st.info("当前还没有任何配方，请先新建。")
+        else:
+            recipe_names = [r["name"] for r in recipes]
+            selected_name = st.selectbox("选择要编辑的配方", options=recipe_names, key="edit_recipe_select")
+            current = next((r for r in recipes if r["name"] == selected_name), None)
+            if current:
+                with st.form("edit_recipe_form"):
+                    new_name = st.text_input("配方名称", value=current["name"])
+                    new_category = st.selectbox(
+                        "类别",
+                        ["vegetable", "meat", "staple"],
+                        index=["vegetable", "meat", "staple"].index(current.get("category", "vegetable")),
+                        format_func=lambda x: {"vegetable": "素菜", "meat": "肉类", "staple": "主食"}[x],
+                        key="edit_recipe_cat",
+                    )
+                    st.caption("编辑此配方包含的食材与克数。")
+                    edit_ings = current.get("ingredients", [])
+                    edit_rows = []
+                    for idx, item in enumerate(edit_ings):
+                        ing = ingredient_by_id(ingredients, item.get("ingredient_id"))
+                        ing_name_default = ing["name"] if ing else ""
+                        c1, c2, c3 = st.columns([3, 2, 1])
+                        with c1:
+                            sel_name = st.selectbox(
+                                f"食材 {idx+1}",
+                                [i["name"] for i in ingredients],
+                                index=max([i["name"] for i in ingredients].index(ing_name_default), 0) if ing_name_default in [i["name"] for i in ingredients] else 0,
+                                key=f"edit_rec_ing_name_{current['id']}_{idx}",
+                            )
+                        with c2:
+                            grams = st.number_input(
+                                "克数",
+                                min_value=1,
+                                value=int(item.get("weight_grams", 100)),
+                                key=f"edit_rec_ing_g_{current['id']}_{idx}",
+                            )
+                        with c3:
+                            remove = st.checkbox("删除", value=False, key=f"edit_rec_ing_del_{current['id']}_{idx}")
+                        if not remove:
+                            edit_rows.append(
+                                {
+                                    "ingredient_id": next(i["id"] for i in ingredients if i["name"] == sel_name),
+                                    "weight_grams": grams,
+                                }
+                            )
+                    # 允许新增一行
+                    add_new = st.checkbox("在提交时为此配方再新增一行空食材", value=False, key=f"edit_rec_add_new_{current['id']}")
+                    submitted = st.form_submit_button("保存修改")
+                col_del1, col_del2 = st.columns(2)
+                with col_del1:
+                    if submitted:
+                        current["name"] = new_name.strip() or current["name"]
+                        current["category"] = new_category
+                        if add_new:
+                            # 追加一行默认空食材（使用第一个食材，100g），便于下次编辑时再细调
+                            if ingredients:
+                                first = ingredients[0]
+                                edit_rows.append({"ingredient_id": first["id"], "weight_grams": 100})
+                        current["ingredients"] = edit_rows
+                        save_recipes(recipes)
+                        st.session_state.recipes = recipes
+                        st.success("配方已更新")
+                        st.rerun()
+                with col_del2:
+                    if st.button("删除此配方", key=f"btn_delete_recipe_{current['id']}"):
+                        recipes = [r for r in recipes if r["id"] != current["id"]]
+                        save_recipes(recipes)
+                        st.session_state.recipes = recipes
+                        st.success("配方已删除")
                         st.rerun()
 
     # ---------- 一周购物清单 ----------
