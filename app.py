@@ -412,11 +412,12 @@ def render_daily_plan_tab():
     if not recipe_options:
         st.warning("请先在「配方管理」中创建配方，或使用下方快速添加。")
     else:
+        # key 中带上 day_key 和 meal_key，防止不同日期/餐次之间的状态串联
         chosen = st.multiselect(
             "选择本餐包含的菜（可多选）",
             options=list(recipe_options.keys()),
             default=[r["name"] for r in recipes if r["id"] in selected_recipe_ids],
-            key="meal_recipes_select"
+            key=f"meal_recipes_select_{day_key}_{meal_key}",
         )
         selected_recipe_ids = [recipe_options[n] for n in chosen]
 
