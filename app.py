@@ -595,10 +595,29 @@ def render_daily_plan_tab():
                     "脂肪(g)": "",
                 })
                 continue
-            # 按类别分 + 用逆向计算得到本餐总营养
+            # 按类别分 + 用逆向计算得到本餐总营养（考虑菜品权重和就餐人目标）
             meat_list, veg_list, staple_list = [], [], []
-            entries = [{"recipe_id": rid, "scale": 1.0} for rid in rids]
-            target = plan_meal.get("target_calories", 500)
+            ratios = plan_meal.get("recipe_ratios", {})
+            entries = [{"recipe_id": rid, "scale": ratios.get(rid, 1.0)} for rid in rids]
+            persons = plan_meal.get("persons", [])
+            if persons:
+                target = sum(float(p.get("target_calories", 0) or 0) for p in persons) or plan_meal.get("target_calories", 0)
+            else:
+                target = plan_meal.get("target_calories", 0)
+            if not target or target <= 0:
+                # 若无有效目标热量，则跳过营养汇总（行仍保留为空）
+                rows.append({
+                    "星期": day_names_cn[d],
+                    "餐次": meal_names_cn[m],
+                    "肉类": "",
+                    "素菜": "",
+                    "主食": "",
+                    "热量(kcal)": "",
+                    "蛋白质(g)": "",
+                    "碳水(g)": "",
+                    "脂肪(g)": "",
+                })
+                continue
             scales, _ = solve_meal_weights(entries, recipes, ingredients, target)
             total_nut = meal_total_nutrition(
                 [{"recipe_id": e["recipe_id"], "scale": scales[i]} for i, e in enumerate(entries)],
