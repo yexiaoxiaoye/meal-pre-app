@@ -344,6 +344,11 @@ def render_daily_plan_tab():
                 p_cal = st.number_input("默认热量 (kcal)", min_value=0.0, value=500.0, step=50.0, key="person_cal")
             with c2:
                 p_pro = st.number_input("默认蛋白质 (g)", min_value=0.0, value=30.0, step=1.0, key="person_pro")
+            c3, c4 = st.columns(2)
+            with c3:
+                p_carb = st.number_input("默认碳水 (g)", min_value=0.0, value=60.0, step=1.0, key="person_carb")
+            with c4:
+                p_fat = st.number_input("默认脂肪 (g)", min_value=0.0, value=20.0, step=1.0, key="person_fat")
             if st.form_submit_button("添加就餐人"):
                 if p_name.strip():
                     people_list.append(
@@ -351,11 +356,13 @@ def render_daily_plan_tab():
                             "name": p_name.strip(),
                             "default_calories": p_cal,
                             "default_protein": p_pro,
+                            "default_carbs": p_carb,
+                            "default_fat": p_fat,
                         }
                     )
                     save_people(people_list)
                     st.session_state.people = people_list
-                    st.experimental_rerun()
+                    st.rerun()
     if people_list:
         st.sidebar.caption("当前就餐人：" + "、".join(p["name"] for p in people_list))
         del_name = st.sidebar.selectbox(
@@ -373,7 +380,7 @@ def render_daily_plan_tab():
                         persons = weekly_plan[dk][mk].get("persons", [])
                         weekly_plan[dk][mk]["persons"] = [pp for pp in persons if pp.get("name") != del_name]
             save_weekly_plan(weekly_plan)
-            st.experimental_rerun()
+            st.rerun()
     day_key = f"day_{day_idx}"
     meal_key = f"meal_{meal_idx}"
     if day_key not in weekly_plan:
