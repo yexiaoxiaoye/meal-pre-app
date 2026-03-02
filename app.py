@@ -877,8 +877,22 @@ def render_ai_tab():
 
                 import json as _json
 
+                # 允许 AI 用 ```json 代码块包裹输出，这里做一次清洗
+                raw_stripped = raw.strip()
+                if raw_stripped.startswith("```"):
+                    lines = raw_stripped.splitlines()
+                    # 去掉开头的 ``` 或 ```json
+                    if lines and lines[0].startswith("```"):
+                        lines = lines[1:]
+                    # 去掉结尾的 ```
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    raw_clean = "\n".join(lines).strip()
+                else:
+                    raw_clean = raw_stripped
+
                 try:
-                    data = _json.loads(raw)
+                    data = _json.loads(raw_clean)
                 except Exception as e:
                     st.error(f"AI 返回的内容不是合法 JSON，无法执行指令：{e}")
                     messages.append({"role": "assistant", "content": raw})
