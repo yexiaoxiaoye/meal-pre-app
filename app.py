@@ -471,20 +471,53 @@ def render_daily_plan_tab():
         pc1, pc2, pc3, pc4 = st.columns(4)
         for name in selected_person_names:
             base = next((p for p in existing_persons if p.get("name") == name), None)
-            default_cal = float(base.get("target_calories", target_cal / max(len(selected_person_names), 1))) if base else float(target_cal / max(len(selected_person_names), 1))
-            default_pro = float(base.get("target_protein", target_protein / max(len(selected_person_names), 1))) if base else float(target_protein / max(len(selected_person_names), 1))
-            # 若 person 有默认碳水/脂肪，则优先使用
             person_defaults = next((p for p in people_list if p.get("name") == name), {})
-            default_carb = float(base.get("target_carbs", person_defaults.get("default_carbs", target_carbs / max(len(selected_person_names), 1)))) if base else float(person_defaults.get("default_carbs", target_carbs / max(len(selected_person_names), 1)))
-            default_fat = float(base.get("target_fat", person_defaults.get("default_fat", target_fat / max(len(selected_person_names), 1)))) if base else float(person_defaults.get("default_fat", target_fat / max(len(selected_person_names), 1)))
+
+            if base:
+                # 如果这个人在本餐已经有保存过的目标，就直接用已保存的值
+                default_cal = float(base.get("target_calories", 0) or 0)
+                default_pro = float(base.get("target_protein", 0) or 0)
+                default_carb = float(base.get("target_carbs", 0) or 0)
+                default_fat = float(base.get("target_fat", 0) or 0)
+            else:
+                # 第一次加入本餐时，使用「就餐人管理」中配置的默认值
+                default_cal = float(person_defaults.get("default_calories", target_cal / max(len(selected_person_names), 1)))
+                default_pro = float(person_defaults.get("default_protein", target_protein / max(len(selected_person_names), 1)))
+                default_carb = float(person_defaults.get("default_carbs", target_carbs / max(len(selected_person_names), 1)))
+                default_fat = float(person_defaults.get("default_fat", target_fat / max(len(selected_person_names), 1)))
+
             with pc1:
-                cal_p = st.number_input(f"{name} 热量(kcal)", min_value=0.0, value=default_cal, step=10.0, key=f"{day_key}_{meal_key}_{name}_cal")
+                cal_p = st.number_input(
+                    f"{name} 热量(kcal)",
+                    min_value=0.0,
+                    value=default_cal,
+                    step=10.0,
+                    key=f"{day_key}_{meal_key}_{name}_cal",
+                )
             with pc2:
-                pro_p = st.number_input(f"{name} 蛋白质(g)", min_value=0.0, value=default_pro, step=1.0, key=f"{day_key}_{meal_key}_{name}_pro")
+                pro_p = st.number_input(
+                    f"{name} 蛋白质(g)",
+                    min_value=0.0,
+                    value=default_pro,
+                    step=1.0,
+                    key=f"{day_key}_{meal_key}_{name}_pro",
+                )
             with pc3:
-                carb_p = st.number_input(f"{name} 碳水(g)", min_value=0.0, value=default_carb, step=1.0, key=f"{day_key}_{meal_key}_{name}_carb")
+                carb_p = st.number_input(
+                    f"{name} 碳水(g)",
+                    min_value=0.0,
+                    value=default_carb,
+                    step=1.0,
+                    key=f"{day_key}_{meal_key}_{name}_carb",
+                )
             with pc4:
-                fat_p = st.number_input(f"{name} 脂肪(g)", min_value=0.0, value=default_fat, step=1.0, key=f"{day_key}_{meal_key}_{name}_fat")
+                fat_p = st.number_input(
+                    f"{name} 脂肪(g)",
+                    min_value=0.0,
+                    value=default_fat,
+                    step=1.0,
+                    key=f"{day_key}_{meal_key}_{name}_fat",
+                )
             new_persons.append(
                 {
                     "name": name,
