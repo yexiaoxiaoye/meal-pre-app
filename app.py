@@ -779,12 +779,15 @@ def render_daily_plan_tab():
             )
 
 # ---------- Gemini AI 聊天 ----------
-def call_gemini(api_key: str, user_message: str, history: list) -> str:
+def call_gemini(api_key: str, user_message: str, history: list, model_name: str, system_prompt: str | None = None) -> str:
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name)
         chat = model.start_chat(history=[])
+        # 可选的系统提示（用于指令模式）
+        if system_prompt:
+            chat.send_message(system_prompt)
         for h in history:
             if h["role"] == "user":
                 chat.send_message(h["content"])
@@ -798,9 +801,23 @@ def call_gemini(api_key: str, user_message: str, history: list) -> str:
 def render_ai_tab():
     st.subheader("🤖 AI 助手（Gemini）")
     api_key = st.text_input("Gemini API Key", type="password", placeholder="在此输入你的 API Key", key="gemini_key")
+    model_name = st.text_input(
+        "模型名称",
+        value="gemini-1.5-flash-latest",
+        help="例如：gemini-1.5-flash-latest、gemini-1.5-pro-latest。若模型不存在会报 404。",
+        key="gemini_model_name",
+    )
+    mode = st.radio(
+        "模式",
+        ["聊天模式", "指令模式（修改数据）"],
+        horizontal=True,
+        key="gemini_mode",
+    )
     if not api_key:
         st.info("请输入 Gemini API Key 后即可提问，例如：「我剩下的食材还能做什么菜？」或「给我一个高蛋白的中餐菜谱建议」。")
         return
+
+    ingredients = st.session_state.get("ingredients", [])
 
     # 聊天历史
     messages = st.session_state.gemini_messages
@@ -813,13 +830,105 @@ def render_ai_tab():
         messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        with st.chat_message("assistant"):
-            with st.spinner("思考中..."):
-                history_for_api = [{"role": m["role"], "content": m["content"]} for m in messages[:-1]]
-                reply = call_gemini(api_key, prompt, history_for_api)
-            st.markdown(reply)
-        messages.append({"role": "assistant", "content": reply})
-        st.session_state.gemini_messages = messages
+
+        # 普通聊天模式
+        if mode == "聊天模式":
+            with st.chat_message("assistant"):
+                with st.spinner("思考中..."):
+                    history_for_api = [{"role": m["role"], "content": m["content"]} for m in messages[:-1]]
+                    reply = call_gemini(api_key, prompt, history_for_api, model_name=model_name)
+                st.markdown(reply)
+            messages.append({"role": "assistant", "content": reply})
+            st.session_state.gemini_messages = messages
+
+        # 指令模式：让 AI 生成 JSON，用于写入食材库
+        else:
+            system_prompt = """
+你现在处于「指令模式」，需要根据用户描述生成 JSON，用于向食材库添加食材。
+
+要求：
+1. 只输出 JSON，不要输出任何解释性的文字。
+2. JSON 顶层结构必须是：
+{
+  "action": "add_ingredients",
+  "items": [
+    {
+      "name": "食材名",
+      "category": "肉类/素菜/主食/调料/其他 之一",
+      "calories_per_100g": 155,
+      "protein_per_100g": 13,
+      "carbs_per_100g": 1.1,
+      "fat_per_100g": 11
+    },
+    ...
+  ]
+}
+3. 数值字段必须是数字类型（不要加单位），单位统一是「每 100g」。
+4. 如果用户描述中有多种食材，就在 items 数组中输出多条。若用户描述不包含营养信息，请根据常识做一个合理估计。
+"""
+            with st.chat_message("assistant"):
+                with st.spinner("思考中（指令模式，尝试生成 JSON）..."):
+                    history_for_api = [{"role": m["role"], "content": m["content"]} for m in messages[:-1]]
+                    raw = call_gemini(api_key, prompt, history_for_api, model_name=model_name, system_prompt=system_prompt)
+
+                # 显示原始返回内容，方便调试
+                st.markdown("**AI 原始输出（JSON 期望）**：")
+                st.code(raw, language="json")
+
+                import json as _json
+
+                try:
+                    data = _json.loads(raw)
+                except Exception as e:
+                    st.error(f"AI 返回的内容不是合法 JSON，无法执行指令：{e}")
+                    messages.append({"role": "assistant", "content": raw})
+                    st.session_state.gemini_messages = messages
+                else:
+                    if data.get("action") != "add_ingredients":
+                        st.error("当前仅支持 action = 'add_ingredients' 的指令。")
+                    else:
+                        items = data.get("items", [])
+                        if not isinstance(items, list) or not items:
+                            st.error("指令中的 items 为空，未执行任何操作。")
+                        else:
+                            added_names = []
+                            for item in items:
+                                try:
+                                    name = str(item["name"]).strip()
+                                    if not name:
+                                        continue
+                                    category = str(item.get("category", "其他")) or "其他"
+                                    cal = float(item.get("calories_per_100g", 0) or 0)
+                                    pro = float(item.get("protein_per_100g", 0) or 0)
+                                    carb = float(item.get("carbs_per_100g", 0) or 0)
+                                    fat = float(item.get("fat_per_100g", 0) or 0)
+                                except Exception:
+                                    continue
+
+                                new_id = "ing_" + str(uuid.uuid4())[:8]
+                                ingredients.append(
+                                    {
+                                        "id": new_id,
+                                        "name": name,
+                                        "category": category,
+                                        "calories_per_100g": cal,
+                                        "protein_per_100g": pro,
+                                        "carbs_per_100g": carb,
+                                        "fat_per_100g": fat,
+                                    }
+                                )
+                                added_names.append(name)
+
+                            if added_names:
+                                save_ingredients(ingredients)
+                                st.session_state.ingredients = ingredients
+                                st.success("已根据指令添加食材： " + "、".join(added_names))
+                            else:
+                                st.warning("未能从指令中解析出有效食材，未做任何修改。")
+
+                    # 将原始 JSON 也记录到聊天历史中
+                    messages.append({"role": "assistant", "content": raw})
+                    st.session_state.gemini_messages = messages
 
     if messages and st.button("清空对话"):
         st.session_state.gemini_messages = []
