@@ -779,20 +779,52 @@ def render_daily_plan_tab():
             )
 
 # ---------- Gemini AI 聊天 ----------
-def call_gemini(api_key: str, user_message: str, history: list, model_name: str, system_prompt: str | None = None) -> str:
+def call_gemini(
+    api_key: str,
+    user_message: str,
+    history: list,
+    model_name: str,
+    system_prompt: str | None = None,
+    files: list | None = None,
+) -> str:
     try:
         import google.generativeai as genai
+
         genai.configure(api_key=api_key)
+
+        # 如果有上传文件，则使用 generate_content，多模态一次性回答
+        if files:
+            model = genai.GenerativeModel(model_name)
+            contents: list = []
+            if system_prompt:
+                contents.append(system_prompt)
+            # 简化处理：历史消息只作为文字提示，不逐条注入
+            if history:
+                history_text = "\n".join(
+                    f"{m['role']}: {m['content']}" for m in history if isinstance(m, dict)
+                )
+                contents.append(f"以下是之前的对话总结：\n{history_text}")
+            for f in files:
+                try:
+                    mime = getattr(f, "type", None) or "application/octet-stream"
+                    data = f.read()
+                    contents.append({"mime_type": mime, "data": data})
+                except Exception:
+                    continue
+            contents.append(user_message)
+            response = model.generate_content(contents)
+            return getattr(response, "text", str(response))
+
+        # 无文件时，走原来的聊天流程
         model = genai.GenerativeModel(model_name)
         chat = model.start_chat(history=[])
-        # 可选的系统提示（用于指令模式）
         if system_prompt:
             chat.send_message(system_prompt)
         for h in history:
             if h["role"] == "user":
                 chat.send_message(h["content"])
             else:
-                pass  # 用 send_message 后 response 会带历史
+                pass
         response = chat.send_message(user_message)
         return response.text
     except Exception as e:
@@ -812,6 +844,12 @@ def render_ai_tab():
         ["聊天模式", "指令模式（修改数据）"],
         horizontal=True,
         key="gemini_mode",
+    )
+    uploaded_files = st.file_uploader(
+        "上传图片或文件（可选，多选）",
+        type=["jpg", "jpeg", "png", "webp", "gif", "pdf", "txt"],
+        accept_multiple_files=True,
+        key="gemini_files",
     )
     if not api_key:
         st.info("请输入 Gemini API Key 后即可提问，例如：「我剩下的食材还能做什么菜？」或「给我一个高蛋白的中餐菜谱建议」。")
@@ -836,7 +874,13 @@ def render_ai_tab():
             with st.chat_message("assistant"):
                 with st.spinner("思考中..."):
                     history_for_api = [{"role": m["role"], "content": m["content"]} for m in messages[:-1]]
-                    reply = call_gemini(api_key, prompt, history_for_api, model_name=model_name)
+                    reply = call_gemini(
+                        api_key,
+                        prompt,
+                        history_for_api,
+                        model_name=model_name,
+                        files=uploaded_files,
+                    )
                 st.markdown(reply)
             messages.append({"role": "assistant", "content": reply})
             st.session_state.gemini_messages = messages
